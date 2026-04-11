@@ -72,20 +72,16 @@ models/
 
 | Metric        | CNN        | Converted SNN | Trained SNN |
 |--------------|-----------|--------------|-------------|
-| Accuracy     | High      | Slight drop  | Comparable  |
-| Latency      | Low       | Higher (T)   | Higher (T)  |
-| Efficiency   | Dense MACs| Sparse SynOps| Sparse SynOps|
-| Sparsity     | 0%        | High         | High        |
+| Accuracy     |       |   |   |
+| Latency      |        |    |   |
+| Efficiency   | | | |
+| Sparsity     |       |         |        |
 
 ---
 
 ## Key Insights
 
-- SNNs achieve competitive accuracy with significantly fewer active computations
-- ANN → SNN conversion introduces information loss due to discretization
-- Increasing time steps improves accuracy but increases latency
-- SNNs are inefficient on GPUs but promising for neuromorphic hardware (e.g., Intel Loihi)
-- Object detection remains challenging for SNNs due to spatial-temporal complexity
+
 
 ---
 
@@ -108,14 +104,4 @@ models/
 
 ---
 
-## Future Work
-
-- Extend SNNs to object detection
-- Explore event-based datasets
-- Optimize for neuromorphic hardware
-- Hybrid CNN-SNN architectures
-
----
-
-## 📌 Takeaway
-This project demonstrates that SNNs are a promising direction for energy-efficient AI, but still face challenges in latency and scalability compared to traditional deep learning models.
+## Takeaway
