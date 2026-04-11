@@ -25,22 +25,22 @@ This repository benchmarks both approaches across:
 ## 🧱 Project Structure
 
 #### src/
-cnn.py                # CNN baseline model (CIFAR-10)
-ann_snn.py            # ANN → SNN conversion (rate coding)
-surrogate_snn.py      # Direct SNN training (LIF + BPTT)
-faster_rcnn.py        # Faster R-CNN inference
-yolo.py               # YOLOv8 inference + fine-tuning
-inference.py          # Visualization of detection results
+- cnn.py                # CNN baseline model (CIFAR-10)
+- ann_snn.py            # ANN → SNN conversion (rate coding)
+- surrogate_snn.py      # Direct SNN training (LIF + BPTT)
+- faster_rcnn.py        # Faster R-CNN inference
+- yolo.py               # YOLOv8 inference + fine-tuning
+- inference.py          # Visualization of detection results
 
 #### utils/
-dataset.py
-metrics.py
-visualization.py
+- dataset.py
+- metrics.py
+- visualization.py
 
 #### results/
-plots/
-logs/
-models/
+- plots/
+- logs/
+- models/
 
 ---
 
