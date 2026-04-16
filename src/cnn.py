@@ -14,57 +14,6 @@ import time
 import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader, Subset
 
-# Preprocessing
-train_transform = transforms.Compose([
-    transforms.RandomCrop(32, padding=4),
-    transforms.RandomHorizontalFlip(),
-    transforms.ToTensor(),
-    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-])
-
-test_transform = transforms.Compose([
-    transforms.ToTensor(),
-    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-])
-
-train_dataset_full = torchvision.datasets.CIFAR10(
-    root='./utils',
-    train=True,
-    transform=train_transform,
-    download=True
-)
-
-val_dataset_full = torchvision.datasets.CIFAR10(
-    root='./utils',
-    train=True,
-    transform=test_transform,
-    download=True
-)
-
-test_data = torchvision.datasets.CIFAR10(
-    root='./utils',
-    train=False,
-    transform=test_transform,
-    download=True
-)
-
-indices = np.random.RandomState(42).permutation(50000)
-train_indices = indices[:45000]
-val_indices = indices[45000:]
-
-train_data = Subset(train_dataset_full, train_indices)
-val_data = Subset(val_dataset_full, val_indices)
-
-train_loader = DataLoader(train_data, batch_size=64, shuffle=True, num_workers=0)
-val_loader = DataLoader(val_data, batch_size=64, shuffle=False, num_workers=0)
-test_loader = DataLoader(test_data, batch_size=64, shuffle=False, num_workers=0)
-
-image, label = train_dataset_full[0]
-
-print("\nImage Size in Dataset:")
-print(image.size())
-
-class_names = ['plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
 
 class NeuralNet(nn.Module):
 
@@ -97,162 +46,217 @@ class NeuralNet(nn.Module):
         x = F.relu(self.fc2(x))
         x = self.fc3(x)
         return x
+    
 
-# create instance
-net = NeuralNet()
-# determine loss function method
-loss_function = nn.CrossEntropyLoss()
-# determine learning rules
-optimizer = optim.Adam(net.parameters(), lr=0.001, weight_decay=1e-4)
+if __name__ == "__main__":
 
-# Training flag
-TRAIN = True
+    # Preprocessing
+    train_transform = transforms.Compose([
+        transforms.RandomCrop(32, padding=4),
+        transforms.RandomHorizontalFlip(),
+        transforms.ToTensor(),
+        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+    ])
 
-# Results
-os.makedirs('./results/models', exist_ok=True)
-os.makedirs('./results/plots', exist_ok=True)
+    test_transform = transforms.Compose([
+        transforms.ToTensor(),
+        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+    ])
 
-train_losses = []
-val_losses = []
-train_accuracies = []
-val_accuracies = []
-best_val_accuracy = 0.0
+    train_dataset_full = torchvision.datasets.CIFAR10(
+        root='./utils',
+        train=True,
+        transform=train_transform,
+        download=True
+    )
 
-if TRAIN:
-    for epoch in range(20):
-        print(f'\nTraining epoch {epoch + 1}...')
+    val_dataset_full = torchvision.datasets.CIFAR10(
+        root='./utils',
+        train=True,
+        transform=test_transform,
+        download=True
+    )
 
-        net.train()
-        running_loss = 0.0
-        correct_train = 0
-        total_train = 0
+    test_data = torchvision.datasets.CIFAR10(
+        root='./utils',
+        train=False,
+        transform=test_transform,
+        download=True
+    )
 
-        for inputs, labels in train_loader:
-            optimizer.zero_grad()
+    indices = np.random.RandomState(42).permutation(50000)
+    train_indices = indices[:45000]
+    val_indices = indices[45000:]
 
-            outputs = net(inputs)
-            loss = loss_function(outputs, labels)
+    train_data = Subset(train_dataset_full, train_indices)
+    val_data = Subset(val_dataset_full, val_indices)
 
-            loss.backward()
-            optimizer.step()
+    train_loader = DataLoader(train_data, batch_size=64, shuffle=True, num_workers=0)
+    val_loader = DataLoader(val_data, batch_size=64, shuffle=False, num_workers=0)
+    test_loader = DataLoader(test_data, batch_size=64, shuffle=False, num_workers=0)
 
-            running_loss += loss.item()
+    image, label = train_dataset_full[0]
 
-            _, predicted = torch.max(outputs, 1)
-            total_train += labels.size(0)
-            correct_train += (predicted == labels).sum().item()
+    print("\nImage Size in Dataset:")
+    print(image.size())
 
-        epoch_train_loss = running_loss / len(train_loader)
-        epoch_train_accuracy = 100 * correct_train / total_train
+    class_names = ['plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
 
-        train_losses.append(epoch_train_loss)
-        train_accuracies.append(epoch_train_accuracy)
+    # create instance
+    net = NeuralNet()
+    # determine loss function method
+    loss_function = nn.CrossEntropyLoss()
+    # determine learning rules
+    optimizer = optim.Adam(net.parameters(), lr=0.001, weight_decay=1e-4)
 
-        # validation
-        net.eval()
-        val_running_loss = 0.0
-        correct_val = 0
-        total_val = 0
+    # Results
+    os.makedirs('./results/models', exist_ok=True)
+    os.makedirs('./results/plots', exist_ok=True)
 
-        with torch.no_grad():
-            for inputs, labels in val_loader:
+    train_losses = []
+    val_losses = []
+    train_accuracies = []
+    val_accuracies = []
+    best_val_accuracy = 0.0
+
+    # Training flag
+    TRAIN = True
+
+    if TRAIN:
+        for epoch in range(20):
+            print(f'\nTraining epoch {epoch + 1}...')
+
+            net.train()
+            running_loss = 0.0
+            correct_train = 0
+            total_train = 0
+
+            for inputs, labels in train_loader:
+                optimizer.zero_grad()
+
                 outputs = net(inputs)
                 loss = loss_function(outputs, labels)
 
-                val_running_loss += loss.item()
+                loss.backward()
+                optimizer.step()
+
+                running_loss += loss.item()
 
                 _, predicted = torch.max(outputs, 1)
-                total_val += labels.size(0)
-                correct_val += (predicted == labels).sum().item()
+                total_train += labels.size(0)
+                correct_train += (predicted == labels).sum().item()
 
-        epoch_val_loss = val_running_loss / len(val_loader)
-        epoch_val_accuracy = 100 * correct_val / total_val
+            epoch_train_loss = running_loss / len(train_loader)
+            epoch_train_accuracy = 100 * correct_train / total_train
 
-        val_losses.append(epoch_val_loss)
-        val_accuracies.append(epoch_val_accuracy)
+            train_losses.append(epoch_train_loss)
+            train_accuracies.append(epoch_train_accuracy)
 
-        print(f'Train Loss: {epoch_train_loss:.4f} | Train Acc: {epoch_train_accuracy:.2f}%')
-        print(f'Val Loss:   {epoch_val_loss:.4f} | Val Acc:   {epoch_val_accuracy:.2f}%')
+            # validation
+            net.eval()
+            val_running_loss = 0.0
+            correct_val = 0
+            total_val = 0
 
-        if epoch_val_accuracy > best_val_accuracy:
-            best_val_accuracy = epoch_val_accuracy
-            torch.save(net.state_dict(), './results/models/best_net.pth')
-            print('Best model saved.')
+            with torch.no_grad():
+                for inputs, labels in val_loader:
+                    outputs = net(inputs)
+                    loss = loss_function(outputs, labels)
 
-else:
+                    val_running_loss += loss.item()
+
+                    _, predicted = torch.max(outputs, 1)
+                    total_val += labels.size(0)
+                    correct_val += (predicted == labels).sum().item()
+
+            epoch_val_loss = val_running_loss / len(val_loader)
+            epoch_val_accuracy = 100 * correct_val / total_val
+
+            val_losses.append(epoch_val_loss)
+            val_accuracies.append(epoch_val_accuracy)
+
+            print(f'Train Loss: {epoch_train_loss:.4f} | Train Acc: {epoch_train_accuracy:.2f}%')
+            print(f'Val Loss:   {epoch_val_loss:.4f} | Val Acc:   {epoch_val_accuracy:.2f}%')
+
+            if epoch_val_accuracy > best_val_accuracy:
+                best_val_accuracy = epoch_val_accuracy
+                torch.save(net.state_dict(), './results/models/best_net.pth')
+                print('Best model saved.')
+
+    else:
+        net.load_state_dict(torch.load('./results/models/best_net.pth'))
+
+    # always load best model before final test evaluation
     net.load_state_dict(torch.load('./results/models/best_net.pth'))
 
-# always load best model before final test evaluation
-net.load_state_dict(torch.load('./results/models/best_net.pth'))
+    #load net in another file
+    #net = NeuralNet()
+    #net.load_state_dict(torch.load('./results/models/trained_net.pth))
 
-#load net in another file
-#net = NeuralNet()
-#net.load_state_dict(torch.load('./results/models/trained_net.pth))
+    correct = 0
+    total = 0
 
-correct = 0
-total = 0
+    net.eval()
 
-net.eval()
+    start_time = time.perf_counter()
 
-start_time = time.perf_counter()
+    with torch.no_grad():
+        for images, labels in test_loader:
+            outputs = net(images)
+            _, predicted = torch.max(outputs, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
 
-with torch.no_grad():
-    for images, labels in test_loader:
-        outputs = net(images)
-        _, predicted = torch.max(outputs, 1)
-        total += labels.size(0)
-        correct += (predicted == labels).sum().item()
+    end_time = time.perf_counter()
 
-end_time = time.perf_counter()
+    test_accuracy = 100 * correct / total
+    total_inference_time = end_time - start_time
+    ms_per_image = (total_inference_time / total) * 1000
 
-test_accuracy = 100 * correct / total
-total_inference_time = end_time - start_time
-ms_per_image = (total_inference_time / total) * 1000
-
-print(f'\nFinal Test Accuracy: {test_accuracy:.2f}%')
-print(f'Average Inference Time: {ms_per_image:.4f} ms/image')
+    print(f'\nFinal Test Accuracy: {test_accuracy:.2f}%')
+    print(f'Average Inference Time: {ms_per_image:.4f} ms/image')
 
 
-epochs = range(1, len(train_losses) + 1)
+    epochs = range(1, len(train_losses) + 1)
 
-plt.figure()
-plt.plot(epochs, train_losses, label='Train Loss')
-plt.plot(epochs, val_losses, label='Validation Loss')
-plt.xlabel('Epoch')
-plt.ylabel('Loss')
-plt.title('Training and Validation Loss')
-plt.legend()
-plt.savefig('./results/plots/loss_curve.png')
-plt.close()
+    plt.figure()
+    plt.plot(epochs, train_losses, label='Train Loss')
+    plt.plot(epochs, val_losses, label='Validation Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.title('Training and Validation Loss')
+    plt.legend()
+    plt.savefig('./results/plots/loss_curve.png')
+    plt.close()
 
-plt.figure()
-plt.plot(epochs, train_accuracies, label='Train Accuracy')
-plt.plot(epochs, val_accuracies, label='Validation Accuracy')
-plt.xlabel('Epoch')
-plt.ylabel('Accuracy (%)')
-plt.title('Training and Validation Accuracy')
-plt.legend()
-plt.savefig('./results/plots/accuracy_curve.png')
-plt.close()
+    plt.figure()
+    plt.plot(epochs, train_accuracies, label='Train Accuracy')
+    plt.plot(epochs, val_accuracies, label='Validation Accuracy')
+    plt.xlabel('Epoch')
+    plt.ylabel('Accuracy (%)')
+    plt.title('Training and Validation Accuracy')
+    plt.legend()
+    plt.savefig('./results/plots/accuracy_curve.png')
+    plt.close()
 
-# new_transform = transforms.Compose([
-#     transforms.Resize((32, 32)),
-#     transforms.ToTensor(),
-#     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-# ])
+    # new_transform = transforms.Compose([
+    #     transforms.Resize((32, 32)),
+    #     transforms.ToTensor(),
+    #     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+    # ])
 
-# def load_image(image_path):
-#     image = Image.open(image_path)
-#     image = new_transform(image)
-#     image = image.unsqueeze(0)
-#     return image
+    # def load_image(image_path):
+    #     image = Image.open(image_path)
+    #     image = new_transform(image)
+    #     image = image.unsqueeze(0)
+    #     return image
 
-#image_paths = []
-#images = [load_image(img) for img in image_paths]
+    #image_paths = []
+    #images = [load_image(img) for img in image_paths]
 
-#net.eval()
-# with torch.no_grad():
-#     for image in images:
-#         output = net(image)
-#         _, predicted = torch.max(output, 1)
-#         print(f'Prediction: {class_names[predicted.item()]}')
+    #net.eval()
+    # with torch.no_grad():
+    #     for image in images:
+    #         output = net(image)
+    #         _, predicted = torch.max(output, 1)
+    #         print(f'Prediction: {class_names[predicted.item()]}')
