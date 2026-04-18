@@ -4,6 +4,9 @@ import torch.nn as nn
 import snntorch as snn
 from snntorch import spikegen
 import sys
+import torchvision.transforms as transforms
+import torchvision
+from torch.utils.data import DataLoader
 
 # Create CNN instance
 cnn = NeuralNet()
@@ -141,5 +144,47 @@ class ConvertedSNN(nn.Module):
         # convert all tensors into 1 single tensor and return
         return torch.stack(spk_out_rec)
 
+# create SNN instance
 snn = ConvertedSNN()
 print('\nSNN created successfully.')
+
+# copy weights
+snn.conv1.weight = cnn.conv1.weight
+snn.conv2.weight = cnn.conv2.weight
+snn.conv3.weight = cnn.conv3.weight
+snn.fc1.weight = cnn.fc1.weight
+snn.fc2.weight = cnn.fc2.weight
+snn.fc3.weight = cnn.fc3.weight
+
+print ('\nWeights copied successfully.')
+
+# copy biases
+
+snn.conv1.bias = cnn.conv1.bias
+snn.conv2.bias = cnn.conv2.bias
+snn.conv3.bias = cnn.conv3.bias
+snn.fc1.bias = cnn.fc1.bias
+snn.fc2.bias = cnn.fc2.bias
+snn.fc3.bias = cnn.fc3.bias
+
+print ('\nBiases copied successfully.')
+
+print('\n---------------- Test Setup ----------------')
+
+# same normalization as in CNN
+test_transform = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+])
+
+# same CIFAR-10 test set
+test_data = torchvision.datasets.CIFAR10(
+    root='./utils',
+    train=False,
+    transform=test_transform,
+    download=True
+)
+
+# same batch size
+test_loader = DataLoader(test_data, batch_size=64, shuffle=False, num_workers=0)
+

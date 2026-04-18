@@ -120,7 +120,7 @@ if __name__ == "__main__":
     best_val_accuracy = 0.0
 
     # Training flag
-    TRAIN = True
+    TRAIN = False
 
     if TRAIN:
         for epoch in range(20):
