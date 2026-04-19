@@ -14,7 +14,7 @@ import time
 import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader, Subset
 
-
+# base cnn
 class NeuralNet(nn.Module):
 
     def __init__(self):
@@ -46,7 +46,33 @@ class NeuralNet(nn.Module):
         x = F.relu(self.fc2(x))
         x = self.fc3(x)
         return x
-    
+
+# conversion friendly cnn
+class ConversionFriendlyNet(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+        # same general CNN structure, but easier to convert to SNN
+        self.conv1 = nn.Conv2d(3, 32, 3, padding=1)
+        self.conv2 = nn.Conv2d(32, 64, 3, padding=1)
+        self.conv3 = nn.Conv2d(64, 128, 3, padding=1)
+
+        # average pooling is usually easier for ANN -> SNN conversion
+        self.pool = nn.AvgPool2d(2, 2)
+
+        self.fc1 = nn.Linear(128 * 4 * 4, 256)
+        self.fc2 = nn.Linear(256, 128)
+        self.fc3 = nn.Linear(128, 10)
+
+    def forward(self, x):
+        x = self.pool(F.relu(self.conv1(x)))
+        x = self.pool(F.relu(self.conv2(x)))
+        x = self.pool(F.relu(self.conv3(x)))
+        x = torch.flatten(x, 1)
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
+        return x
 
 if __name__ == "__main__":
 
@@ -102,8 +128,12 @@ if __name__ == "__main__":
 
     class_names = ['plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
 
-    # create instance
-    net = NeuralNet()
+    # create cnn instance
+    # net = NeuralNet()
+
+    # create conversion friendly cnn instance
+    net = ConversionFriendlyNet()
+
     # determine loss function method
     loss_function = nn.CrossEntropyLoss()
     # determine learning rules
@@ -120,10 +150,10 @@ if __name__ == "__main__":
     best_val_accuracy = 0.0
 
     # Training flag
-    TRAIN = False
+    TRAIN = True
 
     if TRAIN:
-        for epoch in range(20):
+        for epoch in range(25):
             print(f'\nTraining epoch {epoch + 1}...')
 
             net.train()
@@ -180,18 +210,17 @@ if __name__ == "__main__":
 
             if epoch_val_accuracy > best_val_accuracy:
                 best_val_accuracy = epoch_val_accuracy
-                torch.save(net.state_dict(), './results/models/best_net.pth')
+                # torch.save(net.state_dict(), './results/models/best_net.pth')
+                torch.save(net.state_dict(), './results/models/best_net_conversion.pth')
                 print('Best model saved.')
 
     else:
-        net.load_state_dict(torch.load('./results/models/best_net.pth'))
+        # net.load_state_dict(torch.load('./results/models/best_net.pth'))
+        net.load_state_dict(torch.load('./results/models/best_net_conversion.pth'))
 
     # always load best model before final test evaluation
-    net.load_state_dict(torch.load('./results/models/best_net.pth'))
-
-    #load net in another file
-    #net = NeuralNet()
-    #net.load_state_dict(torch.load('./results/models/trained_net.pth))
+    # net.load_state_dict(torch.load('./results/models/best_net.pth'))
+    net.load_state_dict(torch.load('./results/models/best_net_conversion.pth'))
 
     correct = 0
     total = 0
