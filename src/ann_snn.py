@@ -13,12 +13,9 @@ cnn = NeuralNet()
 # Load trained CNN
 cnn.load_state_dict(torch.load('./results/models/best_net.pth'))
 
-# Check if Loading CNN was successful
-if cnn.eval():
-    print('\nArchitecture loaded successfully.')
-else:
-    print('\nError loading Architecture.')
-    sys.exit()
+# switch CNN to evaluation mode
+cnn.eval()
+print('\nArchitecture loaded successfully.')
 
 print('\nCNN weights:')
 if cnn.conv1.weight is not None:
@@ -68,22 +65,31 @@ print(f'FC 3 Shape: {cnn.fc3.weight.shape}')
 
 print('\n---------------- Converting into SNN ----------------')
 
+# number of time steps for temporal inference
+T = 50
+
 class ConvertedSNN(nn.Module):
     def __init__(self, beta=0.9):
         super().__init__()
 
-        # same structure as CNN
+        # same conv structure as CNN
         self.conv1 = nn.Conv2d(3, 32, 3, padding=1)
         self.conv2 = nn.Conv2d(32, 64, 3, padding=1)
         self.conv3 = nn.Conv2d(64, 128, 3, padding=1)
 
+        # keep batch norm because CNN was trained with it
+        self.bn1 = nn.BatchNorm2d(32)
+        self.bn2 = nn.BatchNorm2d(64)
+        self.bn3 = nn.BatchNorm2d(128)
+
         self.pool = nn.MaxPool2d(2, 2)
 
+        # same fully connected structure as CNN
         self.fc1 = nn.Linear(128 * 4 * 4, 256)
         self.fc2 = nn.Linear(256, 128)
         self.fc3 = nn.Linear(128, 10)
 
-        # spiking neurons (LIF)
+        # spiking neurons
         self.lif1 = snn.Leaky(beta=beta)
         self.lif2 = snn.Leaky(beta=beta)
         self.lif3 = snn.Leaky(beta=beta)
@@ -92,8 +98,13 @@ class ConvertedSNN(nn.Module):
         self.lif6 = snn.Leaky(beta=beta)
 
     def forward(self, x, num_steps=50):
+        # undo normalization: [-1, 1] -> [0, 1]
+        x = (x + 1.0) / 2.0
 
-        # convert input to spikes
+        # make sure values stay in valid spike probability range
+        x = torch.clamp(x, 0.0, 1.0)
+
+        # rate coding: create spikes over time
         spk_in = spikegen.rate(x, num_steps=num_steps)
 
         # initialize membrane potentials
@@ -104,32 +115,33 @@ class ConvertedSNN(nn.Module):
         mem5 = self.lif5.init_leaky()
         mem6 = self.lif6.init_leaky()
 
-        # keep track of spikes
+        # store output spikes of final layer for each time step
         spk_out_rec = []
 
+        # count total spikes across all layers
+        total_spikes = 0
+
+        # count total possible spikes across all layers
+        total_neurons = 0
 
         for step in range(num_steps):
-            # applies convolution to spike input at this time step -> produces current
-            cur1 = self.conv1(spk_in[step])
-            # uses produced spike and previous membrane potential to update the membrane and output binary spike
+            # conv -> batch norm -> LIF -> pool
+            cur1 = self.bn1(self.conv1(spk_in[step]))
             spk1, mem1 = self.lif1(cur1, mem1)
-            # pools spike feature map
             x1 = self.pool(spk1)
 
-            cur2 = self.conv2(x1)
+            cur2 = self.bn2(self.conv2(x1))
             spk2, mem2 = self.lif2(cur2, mem2)
             x2 = self.pool(spk2)
 
-            cur3 = self.conv3(x2)
+            cur3 = self.bn3(self.conv3(x2))
             spk3, mem3 = self.lif3(cur3, mem3)
             x3 = self.pool(spk3)
 
-            # flatten feature map for fc
+            # flatten for fully connected layers
             x3 = torch.flatten(x3, 1)
 
-            # passes flattened feature vector through fc layer -> produces current
             cur4 = self.fc1(x3)
-            # lif neuron uses produced spike and previous membrane potential to update the membrane and output binary spike
             spk4, mem4 = self.lif4(cur4, mem4)
 
             cur5 = self.fc2(spk4)
@@ -138,38 +150,71 @@ class ConvertedSNN(nn.Module):
             cur6 = self.fc3(spk5)
             spk6, mem6 = self.lif6(cur6, mem6)
 
-            # tensor of spikes
+            # save final output spikes
             spk_out_rec.append(spk6)
 
-        # convert all tensors into 1 single tensor and return
-        return torch.stack(spk_out_rec)
+            # add spikes from all layers
+            total_spikes += (
+                spk1.sum() + spk2.sum() + spk3.sum() +
+                spk4.sum() + spk5.sum() + spk6.sum()
+            ).item()
+
+            # count all possible spike positions
+            total_neurons += (
+                spk1.numel() + spk2.numel() + spk3.numel() +
+                spk4.numel() + spk5.numel() + spk6.numel()
+            )
+
+        # return:
+        # 1) output spikes over time
+        # 2) total spike count
+        # 3) total possible spike positions
+        return torch.stack(spk_out_rec), total_spikes, total_neurons
 
 # create SNN instance
 snn = ConvertedSNN()
 print('\nSNN created successfully.')
 
 # copy weights
-snn.conv1.weight = cnn.conv1.weight
-snn.conv2.weight = cnn.conv2.weight
-snn.conv3.weight = cnn.conv3.weight
-snn.fc1.weight = cnn.fc1.weight
-snn.fc2.weight = cnn.fc2.weight
-snn.fc3.weight = cnn.fc3.weight
+snn.conv1.weight.data = cnn.conv1.weight.data.clone()
+snn.conv2.weight.data = cnn.conv2.weight.data.clone()
+snn.conv3.weight.data = cnn.conv3.weight.data.clone()
+snn.fc1.weight.data = cnn.fc1.weight.data.clone()
+snn.fc2.weight.data = cnn.fc2.weight.data.clone()
+snn.fc3.weight.data = cnn.fc3.weight.data.clone()
 
 print ('\nWeights copied successfully.')
 
 # copy biases
 
-snn.conv1.bias = cnn.conv1.bias
-snn.conv2.bias = cnn.conv2.bias
-snn.conv3.bias = cnn.conv3.bias
-snn.fc1.bias = cnn.fc1.bias
-snn.fc2.bias = cnn.fc2.bias
-snn.fc3.bias = cnn.fc3.bias
+snn.conv1.bias.data = cnn.conv1.bias.data.clone()
+snn.conv2.bias.data = cnn.conv2.bias.data.clone()
+snn.conv3.bias.data = cnn.conv3.bias.data.clone()
+snn.fc1.bias.data = cnn.fc1.bias.data.clone()
+snn.fc2.bias.data = cnn.fc2.bias.data.clone()
+snn.fc3.bias.data = cnn.fc3.bias.data.clone()
 
 print ('\nBiases copied successfully.')
 
-print('\n---------------- Test Setup ----------------')
+# copy batch norm learnable parameters
+snn.bn1.weight.data = cnn.bn1.weight.data.clone()
+snn.bn1.bias.data = cnn.bn1.bias.data.clone()
+snn.bn2.weight.data = cnn.bn2.weight.data.clone()
+snn.bn2.bias.data = cnn.bn2.bias.data.clone()
+snn.bn3.weight.data = cnn.bn3.weight.data.clone()
+snn.bn3.bias.data = cnn.bn3.bias.data.clone()
+
+# copy batch norm running statistics
+snn.bn1.running_mean.data = cnn.bn1.running_mean.data.clone()
+snn.bn1.running_var.data = cnn.bn1.running_var.data.clone()
+snn.bn2.running_mean.data = cnn.bn2.running_mean.data.clone()
+snn.bn2.running_var.data = cnn.bn2.running_var.data.clone()
+snn.bn3.running_mean.data = cnn.bn3.running_mean.data.clone()
+snn.bn3.running_var.data = cnn.bn3.running_var.data.clone()
+
+print('\nBatchNorm parameters copied successfully.')
+
+print('\n---------------- Testing ----------------')
 
 # same normalization as in CNN
 test_transform = transforms.Compose([
@@ -188,3 +233,98 @@ test_data = torchvision.datasets.CIFAR10(
 # same batch size
 test_loader = DataLoader(test_data, batch_size=64, shuffle=False, num_workers=0)
 
+# number of correct predictions
+correct = 0
+
+# total number of images
+total = 0
+
+# total spikes across whole test set
+dataset_total_spikes = 0
+
+# total possible spikes across whole test set
+dataset_total_neurons = 0
+
+# sum of stable prediction steps across all images
+stable_step_sum = 0
+
+# put model in evaluation mode
+snn.eval()
+
+# no gradient computation
+with torch.no_grad():
+    # load batches of images and true labels
+    for i, (images, labels) in enumerate(test_loader):
+        if i % 50 == 0:
+            print(f"\nProcessing batch {i}")
+
+        # run SNN for T time steps
+        outputs, batch_spikes, batch_neurons = snn(images, num_steps=T)
+
+        # sum output spikes over time
+        summed = torch.sum(outputs, dim=0)
+
+        # final prediction = class with most cumulative spikes
+        _, predicted = torch.max(summed, 1)
+
+        # update accuracy counters
+        total += labels.size(0)
+        correct += (predicted == labels).sum().item()
+
+        # update spike counters
+        dataset_total_spikes += batch_spikes
+        dataset_total_neurons += batch_neurons
+
+        # find stable prediction step for each image
+        cumulative = torch.zeros_like(summed)
+        batch_size = labels.size(0)
+
+        for sample_idx in range(batch_size):
+            stable_step = T
+
+            for step in range(T):
+                # cumulative spikes up to this time step
+                current_sum = torch.sum(outputs[:step + 1, sample_idx, :], dim=0)
+                current_pred = torch.argmax(current_sum).item()
+
+                # final prediction for this sample
+                final_pred = predicted[sample_idx].item()
+
+                # if current prediction already matches final prediction,
+                # check whether it stays the same for all later steps
+                if current_pred == final_pred:
+                    stays_same = True
+
+                    for future_step in range(step, T):
+                        future_sum = torch.sum(outputs[:future_step + 1, sample_idx, :], dim=0)
+                        future_pred = torch.argmax(future_sum).item()
+
+                        if future_pred != final_pred:
+                            stays_same = False
+                            break
+
+                    if stays_same:
+                        stable_step = step + 1
+                        break
+
+            stable_step_sum += stable_step
+
+# compute final accuracy
+accuracy = 100 * correct / total
+
+# average time step until prediction becomes stable
+avg_stable_steps = stable_step_sum / total
+
+# average spikes per image
+avg_spikes_per_inference = dataset_total_spikes / total
+
+# average firing rate
+avg_firing_rate = dataset_total_spikes / dataset_total_neurons
+
+# print final stats
+print(f"\nTotal samples: {total}")
+print(f"Correct predictions: {correct}")
+print(f"SNN Test Accuracy: {accuracy:.2f}%")
+print(f"Average stable prediction step: {avg_stable_steps:.2f}")
+print(f"Average spikes per inference: {avg_spikes_per_inference:.2f}")
+print(f"Average firing rate: {avg_firing_rate:.6f}")
