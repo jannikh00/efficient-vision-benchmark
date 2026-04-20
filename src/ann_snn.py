@@ -1,4 +1,4 @@
-from cnn import ConversionFriendlyNet
+from cnn import NeuralNet
 import torch
 import torch.nn as nn
 import snntorch as snn
@@ -8,9 +8,9 @@ import torchvision
 from torch.utils.data import DataLoader
 
 # Create CNN instance
-cnn = ConversionFriendlyNet()
+cnn = NeuralNet()
 # Load trained CNN
-cnn.load_state_dict(torch.load('./results/models/best_net_conversion.pth'))
+cnn.load_state_dict(torch.load('./results/models/best_net.pth'))
 
 # switch CNN to evaluation mode
 cnn.eval()
@@ -76,8 +76,13 @@ class ConvertedSNN(nn.Module):
         self.conv2 = nn.Conv2d(32, 64, 3, padding=1)
         self.conv3 = nn.Conv2d(64, 128, 3, padding=1)
 
-        # use average pooling to match conversion-friendly CNN
-        self.pool = nn.AvgPool2d(2, 2)
+        # use max pooling to match original CNN
+        self.pool = nn.MaxPool2d(2, 2)
+
+        # keep batch norm because original CNN was trained with it
+        self.bn1 = nn.BatchNorm2d(32)
+        self.bn2 = nn.BatchNorm2d(64)
+        self.bn3 = nn.BatchNorm2d(128)
 
         # same fully connected structure as CNN
         self.fc1 = nn.Linear(128 * 4 * 4, 256)
@@ -85,12 +90,12 @@ class ConvertedSNN(nn.Module):
         self.fc3 = nn.Linear(128, 10)
 
         # spiking neurons
-        self.lif1 = snn.Leaky(beta=beta)
-        self.lif2 = snn.Leaky(beta=beta)
-        self.lif3 = snn.Leaky(beta=beta)
-        self.lif4 = snn.Leaky(beta=beta)
-        self.lif5 = snn.Leaky(beta=beta)
-        self.lif6 = snn.Leaky(beta=beta)
+        self.lif1 = snn.Leaky(beta=beta, threshold=0.5)
+        self.lif2 = snn.Leaky(beta=beta, threshold=0.5)
+        self.lif3 = snn.Leaky(beta=beta, threshold=0.5)
+        self.lif4 = snn.Leaky(beta=beta, threshold=0.5)
+        self.lif5 = snn.Leaky(beta=beta, threshold=0.5)
+        self.lif6 = snn.Leaky(beta=beta, threshold=0.5)
 
     def forward(self, x, num_steps=T):
         # undo normalization: [-1, 1] -> [0, 1]
@@ -120,16 +125,16 @@ class ConvertedSNN(nn.Module):
         total_neurons = 0
 
         for step in range(num_steps):
-            # conv -> LIF -> pool
-            cur1 = self.conv1(spk_in[step])
+            # conv -> batch norm -> LIF -> pool
+            cur1 = self.bn1(self.conv1(spk_in[step]))
             spk1, mem1 = self.lif1(cur1, mem1)
             x1 = self.pool(spk1)
 
-            cur2 = self.conv2(x1)
+            cur2 = self.bn2(self.conv2(x1))
             spk2, mem2 = self.lif2(cur2, mem2)
             x2 = self.pool(spk2)
 
-            cur3 = self.conv3(x2)
+            cur3 = self.bn3(self.conv3(x2))
             spk3, mem3 = self.lif3(cur3, mem3)
             x3 = self.pool(spk3)
 
@@ -190,6 +195,24 @@ snn.fc2.bias.data = cnn.fc2.bias.data.clone()
 snn.fc3.bias.data = cnn.fc3.bias.data.clone()
 
 print ('\nBiases copied successfully.')
+
+# copy batch norm learnable parameters
+snn.bn1.weight.data = cnn.bn1.weight.data.clone()
+snn.bn1.bias.data = cnn.bn1.bias.data.clone()
+snn.bn2.weight.data = cnn.bn2.weight.data.clone()
+snn.bn2.bias.data = cnn.bn2.bias.data.clone()
+snn.bn3.weight.data = cnn.bn3.weight.data.clone()
+snn.bn3.bias.data = cnn.bn3.bias.data.clone()
+
+# copy batch norm running statistics
+snn.bn1.running_mean.data = cnn.bn1.running_mean.data.clone()
+snn.bn1.running_var.data = cnn.bn1.running_var.data.clone()
+snn.bn2.running_mean.data = cnn.bn2.running_mean.data.clone()
+snn.bn2.running_var.data = cnn.bn2.running_var.data.clone()
+snn.bn3.running_mean.data = cnn.bn3.running_mean.data.clone()
+snn.bn3.running_var.data = cnn.bn3.running_var.data.clone()
+
+print('\nBatchNorm parameters copied successfully.')
 
 print('\n---------------- Testing ----------------')
 

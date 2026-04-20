@@ -48,6 +48,7 @@ class NeuralNet(nn.Module):
         return x
 
 # conversion friendly cnn
+# not used, kept in for reference
 class ConversionFriendlyNet(nn.Module):
     def __init__(self):
         super().__init__()
@@ -129,10 +130,7 @@ if __name__ == "__main__":
     class_names = ['plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']
 
     # create cnn instance
-    # net = NeuralNet()
-
-    # create conversion friendly cnn instance
-    net = ConversionFriendlyNet()
+    net = NeuralNet()
 
     # determine loss function method
     loss_function = nn.CrossEntropyLoss()
@@ -150,7 +148,7 @@ if __name__ == "__main__":
     best_val_accuracy = 0.0
 
     # Training flag
-    TRAIN = True
+    TRAIN = False
 
     if TRAIN:
         for epoch in range(25):
@@ -210,17 +208,14 @@ if __name__ == "__main__":
 
             if epoch_val_accuracy > best_val_accuracy:
                 best_val_accuracy = epoch_val_accuracy
-                # torch.save(net.state_dict(), './results/models/best_net.pth')
-                torch.save(net.state_dict(), './results/models/best_net_conversion.pth')
+                torch.save(net.state_dict(), './results/models/best_net.pth')
                 print('Best model saved.')
 
     else:
-        # net.load_state_dict(torch.load('./results/models/best_net.pth'))
-        net.load_state_dict(torch.load('./results/models/best_net_conversion.pth'))
+        net.load_state_dict(torch.load('./results/models/best_net.pth'))
 
     # always load best model before final test evaluation
-    # net.load_state_dict(torch.load('./results/models/best_net.pth'))
-    net.load_state_dict(torch.load('./results/models/best_net_conversion.pth'))
+    net.load_state_dict(torch.load('./results/models/best_net.pth'))
 
     correct = 0
     total = 0
@@ -267,25 +262,3 @@ if __name__ == "__main__":
     plt.legend()
     plt.savefig('./results/plots/accuracy_curve.png')
     plt.close()
-
-    # new_transform = transforms.Compose([
-    #     transforms.Resize((32, 32)),
-    #     transforms.ToTensor(),
-    #     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
-    # ])
-
-    # def load_image(image_path):
-    #     image = Image.open(image_path)
-    #     image = new_transform(image)
-    #     image = image.unsqueeze(0)
-    #     return image
-
-    #image_paths = []
-    #images = [load_image(img) for img in image_paths]
-
-    #net.eval()
-    # with torch.no_grad():
-    #     for image in images:
-    #         output = net(image)
-    #         _, predicted = torch.max(output, 1)
-    #         print(f'Prediction: {class_names[predicted.item()]}')
