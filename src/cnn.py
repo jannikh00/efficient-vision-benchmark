@@ -148,7 +148,7 @@ if __name__ == "__main__":
     best_val_accuracy = 0.0
 
     # Training flag
-    TRAIN = False
+    TRAIN = True
 
     if TRAIN:
         for epoch in range(25):
@@ -243,22 +243,23 @@ if __name__ == "__main__":
 
     epochs = range(1, len(train_losses) + 1)
 
-    plt.figure()
-    plt.plot(epochs, train_losses, label='Train Loss')
-    plt.plot(epochs, val_losses, label='Validation Loss')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.title('Training and Validation Loss')
-    plt.legend()
-    plt.savefig('./results/plots/loss_curve.png')
-    plt.close()
+    if TRAIN:
+        plt.figure()
+        plt.plot(epochs, train_losses, label='Train Loss')
+        plt.plot(epochs, val_losses, label='Validation Loss')
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss')
+        plt.title('Training and Validation Loss')
+        plt.legend()
+        plt.savefig('./results/plots/loss_curve.png')
+        plt.close()
 
-    plt.figure()
-    plt.plot(epochs, train_accuracies, label='Train Accuracy')
-    plt.plot(epochs, val_accuracies, label='Validation Accuracy')
-    plt.xlabel('Epoch')
-    plt.ylabel('Accuracy (%)')
-    plt.title('Training and Validation Accuracy')
-    plt.legend()
-    plt.savefig('./results/plots/accuracy_curve.png')
-    plt.close()
+        plt.figure()
+        plt.plot(epochs, train_accuracies, label='Train Accuracy')
+        plt.plot(epochs, val_accuracies, label='Validation Accuracy')
+        plt.xlabel('Epoch')
+        plt.ylabel('Accuracy (%)')
+        plt.title('Training and Validation Accuracy')
+        plt.legend()
+        plt.savefig('./results/plots/accuracy_curve.png')
+        plt.close()
