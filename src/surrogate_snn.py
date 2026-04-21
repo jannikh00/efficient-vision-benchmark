@@ -19,8 +19,13 @@ class SurrogateSNN(nn.Module):
 
         # conv layers
         self.conv1 = nn.Conv2d(3, 32, 3, padding=1)
+        self.bn1 = nn.BatchNorm2d(32)   # normalize conv1 output
+
         self.conv2 = nn.Conv2d(32, 64, 3, padding=1)
+        self.bn2 = nn.BatchNorm2d(64)   # normalize conv2 output
+
         self.conv3 = nn.Conv2d(64, 128, 3, padding=1)
+        self.bn3 = nn.BatchNorm2d(128)  # normalize conv3 output
 
         # pooling
         self.pool = nn.MaxPool2d(2, 2)
@@ -29,6 +34,9 @@ class SurrogateSNN(nn.Module):
         self.fc1 = nn.Linear(128 * 4 * 4, 256)
         self.fc2 = nn.Linear(256, 128)
         self.fc3 = nn.Linear(128, 10)
+
+        # dropout
+        self.dropout = nn.Dropout(0.3)
 
         # LIF neurons
         self.lif1 = snn.Leaky(beta=beta, spike_grad=spike_grad)
@@ -57,21 +65,39 @@ class SurrogateSNN(nn.Module):
         # store output spikes and membrane values
         spk_out_rec = []
         mem_out_rec = []
+        # count spikes per layer across all time steps
+        layer_spikes = [0] * 6
+        layer_totals = [0] * 6
 
         for step in range(num_steps):
-            # conv1 -> lif -> pool
-            cur1 = self.conv1(spk_in[step])
+            # conv1 -> bn -> lif -> pool
+            cur1 = self.bn1(self.conv1(spk_in[step]))
             spk1, mem1 = self.lif1(cur1, mem1)
+
+            # count spikes in layer 1
+            layer_spikes[0] += spk1.sum().item()
+            layer_totals[0] += spk1.numel()
+
             x1 = self.pool(spk1)
 
-            # conv2 -> lif -> pool
-            cur2 = self.conv2(x1)
+            # conv2 -> bn -> lif -> pool
+            cur2 = self.bn2(self.conv2(x1))
             spk2, mem2 = self.lif2(cur2, mem2)
+
+            # count spikes in layer 2
+            layer_spikes[1] += spk2.sum().item()
+            layer_totals[1] += spk2.numel()
+
             x2 = self.pool(spk2)
 
-            # conv3 -> lif -> pool
-            cur3 = self.conv3(x2)
+            # conv3 -> bn -> lif -> pool
+            cur3 = self.bn3(self.conv3(x2))
             spk3, mem3 = self.lif3(cur3, mem3)
+
+            # count spikes in layer 3
+            layer_spikes[2] += spk3.sum().item()
+            layer_totals[2] += spk3.numel()
+
             x3 = self.pool(spk3)
 
             # flatten
@@ -81,20 +107,34 @@ class SurrogateSNN(nn.Module):
             cur4 = self.fc1(x3)
             spk4, mem4 = self.lif4(cur4, mem4)
 
+            # count spikes in layer 4
+            layer_spikes[3] += spk4.sum().item()
+            layer_totals[3] += spk4.numel()
+
+            spk4 = self.dropout(spk4)
+
             # fc2 -> lif
             cur5 = self.fc2(spk4)
             spk5, mem5 = self.lif5(cur5, mem5)
+
+            # count spikes in layer 5
+            layer_spikes[4] += spk5.sum().item()
+            layer_totals[4] += spk5.numel()
 
             # fc3 -> output lif
             cur6 = self.fc3(spk5)
             spk6, mem6 = self.lif6(cur6, mem6)
 
+            # count spikes in layer 6
+            layer_spikes[5] += spk6.sum().item()
+            layer_totals[5] += spk6.numel()
+
             # save output over time
             spk_out_rec.append(spk6)
             mem_out_rec.append(mem6)
 
-        # shape: [T, batch, classes]
-        return torch.stack(spk_out_rec), torch.stack(mem_out_rec)
+        # return outputs plus spike statistics
+        return torch.stack(spk_out_rec), torch.stack(mem_out_rec), layer_spikes, layer_totals
     
 # preprocessing
 train_transform = transforms.Compose([
@@ -153,21 +193,85 @@ T = 25
 # create model
 model = SurrogateSNN()
 
+# count trainable parameters
+total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+print(f"Model size (trainable parameters): {total_params}")
+
 # training flag
 TRAIN = True
 
 # making sure folder exists
 os.makedirs('./results/models', exist_ok=True)
 
+# evaluate model at a specific number of time steps
+def evaluate_model(model, loader, eval_T):
+    model.eval()
+
+    test_correct = 0
+    test_total = 0
+
+    # track spikes across full evaluation set
+    test_layer_spikes = [0] * 6
+    test_layer_totals = [0] * 6
+
+    with torch.no_grad():
+        for images, labels in loader:
+            # forward pass with chosen T
+            spk_out, mem_out, layer_spikes, layer_totals = model(images, num_steps=eval_T)
+
+            # sum membrane potentials over time
+            mem_sum = torch.sum(mem_out, dim=0)
+
+            # predictions
+            _, predicted = torch.max(mem_sum, 1)
+
+            test_total += labels.size(0)
+            test_correct += (predicted == labels).sum().item()
+
+            # accumulate layer spike stats
+            for i in range(6):
+                test_layer_spikes[i] += layer_spikes[i]
+                test_layer_totals[i] += layer_totals[i]
+
+    # accuracy
+    test_accuracy = 100 * test_correct / test_total
+
+    # total spike count
+    total_spike_count = sum(test_layer_spikes)
+
+    # average spikes per image
+    avg_spikes_per_image = total_spike_count / test_total
+
+    # firing rates
+    firing_rates = [test_layer_spikes[i] / test_layer_totals[i] for i in range(6)]
+
+    # sparsity = 1 - firing rate
+    sparsities = [1.0 - firing_rates[i] for i in range(6)]
+
+    # overall firing rate / sparsity
+    overall_firing_rate = total_spike_count / sum(test_layer_totals)
+    overall_sparsity = 1.0 - overall_firing_rate
+
+    return {
+        "T": eval_T,
+        "accuracy": test_accuracy,
+        "total_spike_count": total_spike_count,
+        "avg_spikes_per_image": avg_spikes_per_image,
+        "firing_rates": firing_rates,
+        "sparsities": sparsities,
+        "overall_firing_rate": overall_firing_rate,
+        "overall_sparsity": overall_sparsity
+    }
+
 if TRAIN:
     # loss on accumulated membrane potentials
     loss_function = nn.CrossEntropyLoss()
 
     # Adam optimizer
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=1e-4)
 
     # number of epochs
-    num_epochs = 10
+    num_epochs = 20
 
     best_val_accuracy = 0.0
 
@@ -187,7 +291,7 @@ if TRAIN:
             optimizer.zero_grad()
 
             # forward pass over all time steps
-            spk_out, mem_out = model(images, num_steps=T)
+            spk_out, mem_out, _, _ = model(images, num_steps=T)
 
             # sum membrane potentials over time
             mem_sum = torch.sum(mem_out, dim=0)
@@ -224,7 +328,7 @@ if TRAIN:
         with torch.no_grad():
             for images, labels in val_loader:
                 # forward pass
-                spk_out, mem_out = model(images, num_steps=T)
+                spk_out, mem_out, _, _ = model(images, num_steps=T)
 
                 # sum membrane potentials over time
                 mem_sum = torch.sum(mem_out, dim=0)
@@ -250,4 +354,55 @@ if TRAIN:
         minutes, seconds = divmod(total_seconds, 60)
         print(f"Elapsed time: {int(minutes)}:{seconds:05.2f} minutes")
 
-        
+    # load best saved model before final evaluation
+    model.load_state_dict(torch.load('./results/models/best_surrogate_snn.pth'))
+    print("\nLoaded best surrogate SNN for final evaluation.")
+
+    # evaluate at multiple time-step settings
+    results_10 = evaluate_model(model, test_loader, eval_T=10)
+    results_25 = evaluate_model(model, test_loader, eval_T=25)
+    results_50 = evaluate_model(model, test_loader, eval_T=50)
+
+    print("\n===== Efficiency Comparison Across Time Steps =====")
+
+    for results in [results_10, results_25, results_50]:
+        print(f"\nT = {results['T']}")
+        print(f"Test Accuracy: {results['accuracy']:.2f}%")
+        print(f"Total spike count: {results['total_spike_count']}")
+        print(f"Average spikes per image: {results['avg_spikes_per_image']:.2f}")
+        print(f"Overall firing rate: {results['overall_firing_rate']:.6f}")
+        print(f"Overall sparsity: {results['overall_sparsity']:.6f}")
+
+        print(f"Layer 1 firing rate: {results['firing_rates'][0]:.6f} | sparsity: {results['sparsities'][0]:.6f}")
+        print(f"Layer 2 firing rate: {results['firing_rates'][1]:.6f} | sparsity: {results['sparsities'][1]:.6f}")
+        print(f"Layer 3 firing rate: {results['firing_rates'][2]:.6f} | sparsity: {results['sparsities'][2]:.6f}")
+        print(f"Layer 4 firing rate: {results['firing_rates'][3]:.6f} | sparsity: {results['sparsities'][3]:.6f}")
+        print(f"Layer 5 firing rate: {results['firing_rates'][4]:.6f} | sparsity: {results['sparsities'][4]:.6f}")
+        print(f"Layer 6 firing rate: {results['firing_rates'][5]:.6f} | sparsity: {results['sparsities'][5]:.6f}")
+
+else:
+    # load best saved model before final evaluation
+    model.load_state_dict(torch.load('./results/models/best_surrogate_snn.pth'))
+    print("\nLoaded best surrogate SNN for final evaluation.")
+
+    # evaluate at multiple time-step settings
+    results_10 = evaluate_model(model, test_loader, eval_T=10)
+    results_25 = evaluate_model(model, test_loader, eval_T=25)
+    results_50 = evaluate_model(model, test_loader, eval_T=50)
+
+    print("\n===== Efficiency Comparison Across Time Steps =====")
+
+    for results in [results_10, results_25, results_50]:
+        print(f"\nT = {results['T']}")
+        print(f"Test Accuracy: {results['accuracy']:.2f}%")
+        print(f"Total spike count: {results['total_spike_count']}")
+        print(f"Average spikes per image: {results['avg_spikes_per_image']:.2f}")
+        print(f"Overall firing rate: {results['overall_firing_rate']:.6f}")
+        print(f"Overall sparsity: {results['overall_sparsity']:.6f}")
+
+        print(f"Layer 1 firing rate: {results['firing_rates'][0]:.6f} | sparsity: {results['sparsities'][0]:.6f}")
+        print(f"Layer 2 firing rate: {results['firing_rates'][1]:.6f} | sparsity: {results['sparsities'][1]:.6f}")
+        print(f"Layer 3 firing rate: {results['firing_rates'][2]:.6f} | sparsity: {results['sparsities'][2]:.6f}")
+        print(f"Layer 4 firing rate: {results['firing_rates'][3]:.6f} | sparsity: {results['sparsities'][3]:.6f}")
+        print(f"Layer 5 firing rate: {results['firing_rates'][4]:.6f} | sparsity: {results['sparsities'][4]:.6f}")
+        print(f"Layer 6 firing rate: {results['firing_rates'][5]:.6f} | sparsity: {results['sparsities'][5]:.6f}")
