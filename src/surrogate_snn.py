@@ -9,6 +9,7 @@ import numpy as np
 import time
 import os
 
+print("Started script")
 
 class SurrogateSNN(nn.Module):
     def __init__(self, beta=0.9):
@@ -19,13 +20,8 @@ class SurrogateSNN(nn.Module):
 
         # conv layers
         self.conv1 = nn.Conv2d(3, 32, 3, padding=1)
-        self.bn1 = nn.BatchNorm2d(32)   # normalize conv1 output
-
         self.conv2 = nn.Conv2d(32, 64, 3, padding=1)
-        self.bn2 = nn.BatchNorm2d(64)   # normalize conv2 output
-
         self.conv3 = nn.Conv2d(64, 128, 3, padding=1)
-        self.bn3 = nn.BatchNorm2d(128)  # normalize conv3 output
 
         # pooling
         self.pool = nn.MaxPool2d(2, 2)
@@ -34,9 +30,6 @@ class SurrogateSNN(nn.Module):
         self.fc1 = nn.Linear(128 * 4 * 4, 256)
         self.fc2 = nn.Linear(256, 128)
         self.fc3 = nn.Linear(128, 10)
-
-        # dropout
-        self.dropout = nn.Dropout(0.3)
 
         # LIF neurons
         self.lif1 = snn.Leaky(beta=beta, spike_grad=spike_grad)
@@ -70,8 +63,8 @@ class SurrogateSNN(nn.Module):
         layer_totals = [0] * 6
 
         for step in range(num_steps):
-            # conv1 -> bn -> lif -> pool
-            cur1 = self.bn1(self.conv1(spk_in[step]))
+            # conv1 -> lif -> pool
+            cur1 = self.conv1(spk_in[step])
             spk1, mem1 = self.lif1(cur1, mem1)
 
             # count spikes in layer 1
@@ -80,8 +73,8 @@ class SurrogateSNN(nn.Module):
 
             x1 = self.pool(spk1)
 
-            # conv2 -> bn -> lif -> pool
-            cur2 = self.bn2(self.conv2(x1))
+            # conv2 -> lif -> pool
+            cur2 = self.conv2(x1)
             spk2, mem2 = self.lif2(cur2, mem2)
 
             # count spikes in layer 2
@@ -90,8 +83,8 @@ class SurrogateSNN(nn.Module):
 
             x2 = self.pool(spk2)
 
-            # conv3 -> bn -> lif -> pool
-            cur3 = self.bn3(self.conv3(x2))
+            # conv3 -> lif -> pool
+            cur3 = self.conv3(x2)
             spk3, mem3 = self.lif3(cur3, mem3)
 
             # count spikes in layer 3
@@ -110,8 +103,6 @@ class SurrogateSNN(nn.Module):
             # count spikes in layer 4
             layer_spikes[3] += spk4.sum().item()
             layer_totals[3] += spk4.numel()
-
-            spk4 = self.dropout(spk4)
 
             # fc2 -> lif
             cur5 = self.fc2(spk4)
@@ -136,6 +127,8 @@ class SurrogateSNN(nn.Module):
         # return outputs plus spike statistics
         return torch.stack(spk_out_rec), torch.stack(mem_out_rec), layer_spikes, layer_totals
     
+print("Loading datasets...")
+
 # preprocessing
 train_transform = transforms.Compose([
     transforms.RandomCrop(32, padding=4),
@@ -187,11 +180,15 @@ train_loader = DataLoader(train_data, batch_size=64, shuffle=True, num_workers=0
 val_loader = DataLoader(val_data, batch_size=64, shuffle=False, num_workers=0)
 test_loader = DataLoader(test_data, batch_size=64, shuffle=False, num_workers=0)
 
+print("Dataloaders ready")
+
 # number of time steps
 T = 25
 
 # create model
 model = SurrogateSNN()
+
+print("Model created")
 
 # count trainable parameters
 total_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
