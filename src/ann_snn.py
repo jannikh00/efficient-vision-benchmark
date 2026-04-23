@@ -16,52 +16,6 @@ cnn.load_state_dict(torch.load('./results/models/best_net.pth'))
 cnn.eval()
 print('\nArchitecture loaded successfully.')
 
-print('\nCNN weights:')
-if cnn.conv1.weight is not None:
-    print(f'\nConv 1 Weights: Available')
-else:
-    ('No Weights')
-if cnn.conv1.bias is not None:
-    print(f'Conv 1 Bias: Available')
-else:
-    print('No Bias')
-if cnn.conv2.weight is not None:
-    print(f'Conv 2 Weights: Available')
-else:
-    print('No Weights')
-if cnn.conv2.bias is not None:
-    print(f'Conv 2 Bias: Available')
-else:
-    print('No Bias')
-if cnn.conv3.weight is not None:
-    print(f'Conv 3 Weights: Available')
-else:
-    print('No Weights')
-if cnn.conv3.bias is not None:
-    print(f'Conv 3 Bias: Available')
-else:
-    print('No Bias')
-if cnn.fc1.weight is not None:
-    print(f'FC 1 Weights: Available')
-else:
-    print('No Bias')
-if cnn.fc2.weight is not None:
-    print(f'FC 2 Weights: Available')
-else:
-    print('No FC')
-if cnn.fc3.weight is not None:
-    print(f'FC 3 Wieghts: Available')
-else:
-    print('No FC')
-
-
-print(f'\nConv 1 Shape: {cnn.conv1.weight.shape}')
-print(f'Conv 2 Shape: {cnn.conv2.weight.shape}')
-print(f'Conv 3 Shape: {cnn.conv3.weight.shape}')
-print(f'\nFC 1 Shape: {cnn.fc1.weight.shape}')
-print(f'FC 2 Shape: {cnn.fc2.weight.shape}')
-print(f'FC 3 Shape: {cnn.fc3.weight.shape}')
-
 print('\n---------------- Converting into SNN ----------------')
 
 # number of time steps for temporal inference
@@ -119,10 +73,14 @@ class ConvertedSNN(nn.Module):
         spk_out_rec = []
 
         # count total spikes across all layers
+        # count total spikes across all layers
         total_spikes = 0
 
         # count total possible spikes across all layers
         total_neurons = 0
+
+        # count approximate synaptic operations per layer
+        layer_synops = [0] * 6
 
         for step in range(num_steps):
             # conv -> batch norm -> LIF -> pool
@@ -130,13 +88,22 @@ class ConvertedSNN(nn.Module):
             spk1, mem1 = self.lif1(cur1, mem1)
             x1 = self.pool(spk1)
 
+            # synops from pooled layer 1 spikes into conv2
+            layer_synops[0] += x1.sum().item() * (64 * 3 * 3)
+
             cur2 = self.bn2(self.conv2(x1))
             spk2, mem2 = self.lif2(cur2, mem2)
             x2 = self.pool(spk2)
 
+            # synops from pooled layer 2 spikes into conv3
+            layer_synops[1] += x2.sum().item() * (128 * 3 * 3)
+
             cur3 = self.bn3(self.conv3(x2))
             spk3, mem3 = self.lif3(cur3, mem3)
             x3 = self.pool(spk3)
+
+            # synops from pooled layer 3 spikes into fc1
+            layer_synops[2] += x3.sum().item() * 256
 
             # flatten for fully connected layers
             x3 = torch.flatten(x3, 1)
@@ -144,11 +111,20 @@ class ConvertedSNN(nn.Module):
             cur4 = self.fc1(x3)
             spk4, mem4 = self.lif4(cur4, mem4)
 
+            # synops from layer 4 spikes into fc2
+            layer_synops[3] += spk4.sum().item() * 128
+
             cur5 = self.fc2(spk4)
             spk5, mem5 = self.lif5(cur5, mem5)
 
+            # synops from layer 5 spikes into fc3
+            layer_synops[4] += spk5.sum().item() * 10
+
             cur6 = self.fc3(spk5)
             spk6, mem6 = self.lif6(cur6, mem6)
+
+            # output layer has no next trainable layer
+            layer_synops[5] += 0
 
             # save final output spikes
             spk_out_rec.append(spk6)
@@ -169,7 +145,8 @@ class ConvertedSNN(nn.Module):
         # 1) output spikes over time
         # 2) total spike count
         # 3) total possible spike positions
-        return torch.stack(spk_out_rec), total_spikes, total_neurons
+        # 4) approximate synaptic operations
+        return torch.stack(spk_out_rec), total_spikes, total_neurons, layer_synops
 
 # create SNN instance
 snn = ConvertedSNN()
@@ -245,6 +222,9 @@ dataset_total_spikes = 0
 # total possible spikes across whole test set
 dataset_total_neurons = 0
 
+# total approximate synaptic operations across whole test set
+dataset_total_synops = 0
+
 # sum of stable prediction steps across all images
 stable_step_sum = 0
 
@@ -259,7 +239,7 @@ with torch.no_grad():
             print(f"\nProcessing batch {i}")
 
         # run SNN for T time steps
-        outputs, batch_spikes, batch_neurons = snn(images, num_steps=T)
+        outputs, batch_spikes, batch_neurons, batch_synops = snn(images, num_steps=T)
 
         # sum output spikes over time
         summed = torch.sum(outputs, dim=0)
@@ -274,6 +254,7 @@ with torch.no_grad():
         # update spike counters
         dataset_total_spikes += batch_spikes
         dataset_total_neurons += batch_neurons
+        dataset_total_synops += sum(batch_synops)
 
         # find stable prediction step for each image
         cumulative = torch.zeros_like(summed)
@@ -321,10 +302,18 @@ avg_spikes_per_inference = dataset_total_spikes / total
 # average firing rate
 avg_firing_rate = dataset_total_spikes / dataset_total_neurons
 
+# overall / global sparsity
+avg_sparsity = 1.0 - avg_firing_rate
+
 # print final stats
 print(f"\nTotal samples: {total}")
 print(f"Correct predictions: {correct}")
 print(f"SNN Test Accuracy: {accuracy:.2f}%")
+print(f"Chosen time steps T: {T}")
 print(f"Average stable prediction step: {avg_stable_steps:.2f}")
 print(f"Average spikes per inference: {avg_spikes_per_inference:.2f}")
 print(f"Average firing rate: {avg_firing_rate:.6f}")
+print(f"Average sparsity: {avg_sparsity:.6f}")
+print(f"Average sparsity (%): {avg_sparsity * 100:.2f}%")
+print(f"Approximate total SynOps: {dataset_total_synops}")
+print(f"Approximate SynOps per inference: {dataset_total_synops / total:.2f}")

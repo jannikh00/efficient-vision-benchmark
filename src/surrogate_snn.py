@@ -424,6 +424,7 @@ else:
         print(f"Average spikes per image: {results['avg_spikes_per_image']:.2f}")
         print(f"Overall firing rate: {results['overall_firing_rate']:.6f}")
         print(f"Overall sparsity: {results['overall_sparsity']:.6f}")
+        print(f"Overall sparsity (%): {results['overall_sparsity'] * 100:.2f}%")
 
         print(f"Layer 1 firing rate: {results['firing_rates'][0]:.6f} | sparsity: {results['sparsities'][0]:.6f}")
         print(f"Layer 2 firing rate: {results['firing_rates'][1]:.6f} | sparsity: {results['sparsities'][1]:.6f}")
