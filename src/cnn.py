@@ -77,6 +77,28 @@ class ConversionFriendlyNet(nn.Module):
 
 if __name__ == "__main__":
 
+    def compute_cnn_macs():
+        # input: 3 x 32 x 32
+
+        # conv1 output: 32 x 32 x 32
+        conv1_macs = 32 * 32 * 32 * (3 * 3 * 3)
+
+        # after pool: 32 x 16 x 16
+        # conv2 output: 64 x 16 x 16
+        conv2_macs = 64 * 16 * 16 * (32 * 3 * 3)
+
+        # after pool: 64 x 8 x 8
+        # conv3 output: 128 x 8 x 8
+        conv3_macs = 128 * 8 * 8 * (64 * 3 * 3)
+
+        # after pool: 128 x 4 x 4 -> flatten = 2048
+        fc1_macs = (128 * 4 * 4) * 256
+        fc2_macs = 256 * 128
+        fc3_macs = 128 * 10
+
+        total_macs = conv1_macs + conv2_macs + conv3_macs + fc1_macs + fc2_macs + fc3_macs
+        return total_macs
+
     # Preprocessing
     train_transform = transforms.Compose([
         transforms.RandomCrop(32, padding=4),
@@ -131,6 +153,10 @@ if __name__ == "__main__":
 
     # create cnn instance
     net = NeuralNet()
+
+    # compute approximate MACs for one CNN forward pass
+    total_macs = compute_cnn_macs()
+    print(f"Approximate CNN MACs per forward pass: {total_macs}")
 
     # determine loss function method
     loss_function = nn.CrossEntropyLoss()

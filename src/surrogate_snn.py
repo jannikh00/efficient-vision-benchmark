@@ -61,6 +61,8 @@ class SurrogateSNN(nn.Module):
         # count spikes per layer across all time steps
         layer_spikes = [0] * 6
         layer_totals = [0] * 6
+        # count approximate synaptic operations per layer
+        layer_synops = [0] * 6
 
         for step in range(num_steps):
             # conv1 -> lif -> pool
@@ -73,6 +75,9 @@ class SurrogateSNN(nn.Module):
 
             x1 = self.pool(spk1)
 
+            # synops from pooled layer 1 spikes into conv2
+            layer_synops[0] += x1.sum().item() * (64 * 3 * 3)
+
             # conv2 -> lif -> pool
             cur2 = self.conv2(x1)
             spk2, mem2 = self.lif2(cur2, mem2)
@@ -83,6 +88,9 @@ class SurrogateSNN(nn.Module):
 
             x2 = self.pool(spk2)
 
+            # synops from pooled layer 2 spikes into conv3
+            layer_synops[1] += x2.sum().item() * (128 * 3 * 3)
+
             # conv3 -> lif -> pool
             cur3 = self.conv3(x2)
             spk3, mem3 = self.lif3(cur3, mem3)
@@ -92,6 +100,9 @@ class SurrogateSNN(nn.Module):
             layer_totals[2] += spk3.numel()
 
             x3 = self.pool(spk3)
+
+            # synops from pooled layer 3 spikes into fc1
+            layer_synops[2] += x3.sum().item() * 256
 
             # flatten
             x3 = torch.flatten(x3, 1)
@@ -104,6 +115,9 @@ class SurrogateSNN(nn.Module):
             layer_spikes[3] += spk4.sum().item()
             layer_totals[3] += spk4.numel()
 
+            # synops from layer 4 spikes into fc2
+            layer_synops[3] += spk4.sum().item() * 128
+
             # fc2 -> lif
             cur5 = self.fc2(spk4)
             spk5, mem5 = self.lif5(cur5, mem5)
@@ -112,6 +126,9 @@ class SurrogateSNN(nn.Module):
             layer_spikes[4] += spk5.sum().item()
             layer_totals[4] += spk5.numel()
 
+            # synops from layer 5 spikes into fc3
+            layer_synops[4] += spk5.sum().item() * 10
+
             # fc3 -> output lif
             cur6 = self.fc3(spk5)
             spk6, mem6 = self.lif6(cur6, mem6)
@@ -119,13 +136,15 @@ class SurrogateSNN(nn.Module):
             # count spikes in layer 6
             layer_spikes[5] += spk6.sum().item()
             layer_totals[5] += spk6.numel()
+            # output layer has no next trainable layer, keep as 0
+            layer_synops[5] += 0
 
             # save output over time
             spk_out_rec.append(spk6)
             mem_out_rec.append(mem6)
 
         # return outputs plus spike statistics
-        return torch.stack(spk_out_rec), torch.stack(mem_out_rec), layer_spikes, layer_totals
+        return torch.stack(spk_out_rec), torch.stack(mem_out_rec), layer_spikes, layer_totals, layer_synops
     
 print("Loading datasets...")
 
@@ -211,10 +230,12 @@ def evaluate_model(model, loader, eval_T):
     test_layer_spikes = [0] * 6
     test_layer_totals = [0] * 6
 
+    test_layer_synops = [0] * 6
+
     with torch.no_grad():
         for images, labels in loader:
             # forward pass with chosen T
-            spk_out, mem_out, layer_spikes, layer_totals = model(images, num_steps=eval_T)
+            spk_out, mem_out, layer_spikes, layer_totals, layer_synops = model(images, num_steps=eval_T)
 
             # sum membrane potentials over time
             mem_sum = torch.sum(mem_out, dim=0)
@@ -225,16 +246,20 @@ def evaluate_model(model, loader, eval_T):
             test_total += labels.size(0)
             test_correct += (predicted == labels).sum().item()
 
-            # accumulate layer spike stats
+            # accumulate layer stats
             for i in range(6):
                 test_layer_spikes[i] += layer_spikes[i]
                 test_layer_totals[i] += layer_totals[i]
+                test_layer_synops[i] += layer_synops[i]
 
     # accuracy
     test_accuracy = 100 * test_correct / test_total
 
     # total spike count
     total_spike_count = sum(test_layer_spikes)
+
+    # approximate total synops
+    total_synops = sum(test_layer_synops)
 
     # average spikes per image
     avg_spikes_per_image = total_spike_count / test_total
@@ -253,6 +278,7 @@ def evaluate_model(model, loader, eval_T):
         "T": eval_T,
         "accuracy": test_accuracy,
         "total_spike_count": total_spike_count,
+        "total_synops": total_synops,
         "avg_spikes_per_image": avg_spikes_per_image,
         "firing_rates": firing_rates,
         "sparsities": sparsities,
@@ -288,7 +314,7 @@ if TRAIN:
             optimizer.zero_grad()
 
             # forward pass over all time steps
-            spk_out, mem_out, _, _ = model(images, num_steps=T)
+            spk_out, mem_out, _, _, _ = model(images, num_steps=T)
 
             # sum membrane potentials over time
             mem_sum = torch.sum(mem_out, dim=0)
@@ -325,7 +351,7 @@ if TRAIN:
         with torch.no_grad():
             for images, labels in val_loader:
                 # forward pass
-                spk_out, mem_out, _, _ = model(images, num_steps=T)
+                spk_out, mem_out, _, _, _ = model(images, num_steps=T)
 
                 # sum membrane potentials over time
                 mem_sum = torch.sum(mem_out, dim=0)
@@ -366,6 +392,7 @@ if TRAIN:
         print(f"\nT = {results['T']}")
         print(f"Test Accuracy: {results['accuracy']:.2f}%")
         print(f"Total spike count: {results['total_spike_count']}")
+        print(f"Approximate total SynOps: {results['total_synops']}")
         print(f"Average spikes per image: {results['avg_spikes_per_image']:.2f}")
         print(f"Overall firing rate: {results['overall_firing_rate']:.6f}")
         print(f"Overall sparsity: {results['overall_sparsity']:.6f}")
@@ -393,6 +420,7 @@ else:
         print(f"\nT = {results['T']}")
         print(f"Test Accuracy: {results['accuracy']:.2f}%")
         print(f"Total spike count: {results['total_spike_count']}")
+        print(f"Approximate total SynOps: {results['total_synops']}")
         print(f"Average spikes per image: {results['avg_spikes_per_image']:.2f}")
         print(f"Overall firing rate: {results['overall_firing_rate']:.6f}")
         print(f"Overall sparsity: {results['overall_sparsity']:.6f}")
