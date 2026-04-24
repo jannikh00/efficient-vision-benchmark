@@ -1,2 +1,27 @@
 utils/cifar-10-python.tar.gz
 utils/cifar-10-batches-py/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual environment
+.venv/
+venv/
+
+# macOS
+.DS_Store
+
+# YOLO / training outputs
+runs/
+results/
+
+# Dataset
+data/
+
+# Weights
+*.pt
+
+# Logs
+*.log
