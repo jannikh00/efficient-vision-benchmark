@@ -1,108 +1,74 @@
 # Efficient Vision Benchmark
-Benchmarking CNNs and Spiking Neural Networks (SNNs) for Efficient Computer Vision
 
-## 🚀 Overview
-This project explores the trade-offs between traditional Convolutional Neural Networks (CNNs) and Spiking Neural Networks (SNNs) in computer vision tasks.
+CNN vs SNN + Faster R-CNN vs YOLO (focus: accuracy, latency, efficiency)
 
-While CNNs achieve high accuracy, they are computationally expensive. SNNs offer a biologically inspired, event-driven alternative that can significantly reduce energy consumption.
+## Overview
+This project compares:
+- CNN vs SNN (classification on CIFAR-10)
+- Faster R-CNN vs YOLOv8 (object detection on Pascal VOC)
 
-This repository benchmarks both approaches across:
-- Image classification (CIFAR-10)
-- ANN → SNN conversion
-- Direct SNN training with surrogate gradients
-- Object detection (Faster R-CNN vs YOLO)
+Main goal: understand trade-offs (accuracy vs speed vs sparsity)
 
----
+## Structure
 
-## 🎯 Objectives
-- Compare accuracy, latency, and efficiency between CNNs and SNNs
-- Analyze the impact of ANN → SNN conversion
-- Evaluate directly trained SNNs using surrogate gradients
-- Benchmark modern object detection models
-
----
-
-## 🧱 Project Structure
-
-#### src/
-- cnn.py                # CNN baseline model (CIFAR-10)
-- ann_snn.py            # ANN → SNN conversion (rate coding)
-- surrogate_snn.py      # Direct SNN training (LIF + BPTT)
-- faster_rcnn.py        # Faster R-CNN inference
-- yolo.py               # YOLOv8 inference + fine-tuning
-- inference.py          # Visualization of detection results
-
-#### utils/
-- dataset.py
-- metrics.py
-- visualization.py
-
-#### results/
-- plots/
-- logs/
-- models/
-
----
-
-## Methods
-
-### 1. CNN Baseline
-- Custom CNN trained from scratch on CIFAR-10
-- Achieves >80% test accuracy
-- Serves as baseline for comparison
-
-### 2. ANN → SNN Conversion
-- Converts trained CNN into SNN using rate coding
-- Evaluates temporal dynamics (time steps T)
-- Measures spike activity and efficiency
-
-### 3. Direct SNN Training
-- Leaky Integrate-and-Fire (LIF) neurons
-- Backpropagation Through Time (BPTT)
-- Surrogate gradient optimization
-
-### 4. Object Detection
-- Faster R-CNN (ResNet50-FPN)
-- YOLOv8 (Ultralytics)
-- Metrics: mAP and inference time
-- YOLO fine-tuning on Pascal VOC subset
-
----
-
-## Key Metrics
-
-| Metric        | CNN        | Converted SNN | Trained SNN |
-|--------------|-----------|--------------|-------------|
-| Accuracy     |       |   |   |
-| Latency      |        |    |   |
-| Efficiency   | | | |
-| Sparsity     |       |         |        |
-
----
-
-## Key Insights
-
-
-
----
-
-## Tech Stack
-
-- PyTorch
-- snnTorch
-- Ultralytics (YOLOv8)
-- OpenCV
-- NumPy / Matplotlib
-
----
+src/
+├── cnn.py  
+├── ann_snn.py  
+├── surrogate_snn.py  
+├── faster_R_CNN.py  
+├── YOLO.py  
+├── YOLO_finetune.py  
+├── inference.py  
+├── utils_voc.py  
+└── metrics.py  
 
 ## Results
 
-- --- put plots here ---
-- Training/validation curves
-- Accuracy vs time steps
-- Detection visualizations
+### Classification
 
----
+| Model | Accuracy |
+|---|---:|
+| CNN | 81.46% |
+| SNN (converted / trained) | lower than CNN |
+
+- CNN works best
+- SNN performance depends heavily on training and conversion setup
+
+### Object Detection
+
+| Model | mAP@0.5 | Time |
+|---|---:|---:|
+| Faster R-CNN | 0.7381 | 1054 ms |
+| YOLOv8-nano | 0.6071 | 41 ms |
+
+- Faster R-CNN -> better accuracy  
+- YOLO -> much faster  
+
+## Run
+
+pip install -r requirements.txt
+
+python src/cnn.py  
+python src/ann_snn.py  
+python src/surrogate_snn.py  
+python src/faster_R_CNN.py  
+python src/YOLO.py  
+python src/inference.py  
+python src/YOLO_finetune.py  
+
+## Notes
+
+data/  
+results/  
+runs/  
+*.pt  
+.venv/  
+
+not included (too large)
 
 ## Takeaway
+
+- CNN -> best accuracy  
+- SNN -> more efficient but harder to train well  
+- Faster R-CNN -> accurate but slow  
+- YOLO -> fast but less accurate  
